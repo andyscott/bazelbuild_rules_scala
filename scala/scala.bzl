@@ -317,9 +317,11 @@ _scala_test_attrs = {
         default = Label("//scala/support:test_reporter"),
     ),
     "_jacocorunner": attr.label(
+        cfg = "host",
         default = Label("@bazel_tools//tools/jdk:JacocoCoverage"),
     ),
     "_lcov_merger": attr.label(
+        cfg = "host",
         default = Label("@bazel_tools//tools/test/CoverageOutputGenerator/java/com/google/devtools/coverageoutputgenerator:Main"),
     ),
 }
