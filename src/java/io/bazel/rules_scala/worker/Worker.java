@@ -7,6 +7,9 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.PrintStream;
 import java.lang.SecurityManager;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.Permission;
 import java.util.ArrayList;
 import java.util.LinkedList;
@@ -20,23 +23,16 @@ import com.google.devtools.build.lib.worker.WorkerProtocol;
 
 public final class Worker {
 
+    /**
+     * Scala and Java workers need to provide a main method that calls
+     * `Worker.workerMain` with a valid `Worker.Interface`.
+     */
     public static interface Interface {
 	public void work(String args[]);
     }
 
-    final static class ExitTrapped extends RuntimeException {
-	final int code;
-	ExitTrapped(int code) {
-	    super();
-	    this.code = code;
-	}
-    }
-
-    private static final Pattern exitPattern =
-	Pattern.compile("exitVM\\.(-?\\d+)");
-
-    public static void workerMain(String workerArgs[], Interface workerInterface) {
-	if (workerArgs.length > 0 && workerArgs[0].equals("--persistent_worker")) {
+    public static final void workerMain(String args[], Interface workerInterface) {
+	if (args.length > 0 && args[0].equals("--persistent_worker")) {
 
 	    System.setSecurityManager(new SecurityManager() {
 		    @Override
@@ -45,7 +41,8 @@ public final class Worker {
 			if (matcher.find())
 			    throw new ExitTrapped(Integer.parseInt(matcher.group(1)));
 		    }
-		});
+		}
+	    );
 
 	    InputStream stdin = System.in;
 	    PrintStream stdout = System.out;
@@ -65,13 +62,7 @@ public final class Worker {
 		    int code = 0;
 
 		    try {
-			List<String> argList = request.getArgumentsList();
-			int numArgs = argList.size();
-			String[] args = new String[numArgs];
-			for (int i = 0; i < numArgs; i++) {
-			    args[i] = argList.get(i);
-			}
-			workerInterface.work(args);
+			workerInterface.work(toArray(request.getArgumentsList()));
 		    } catch (ExitTrapped e) {
 			code = e.code;
 		    } catch (Exception e) {
@@ -96,7 +87,37 @@ public final class Worker {
 		System.setErr(stderr);
 	    }
 	} else {
-	    workerInterface.work(workerArgs);
+	    if (args.length == 1 && args[0].startsWith("@")) {
+		try {
+		    args = toArray(Files.readAllLines(
+		        Paths.get(args[0].substring(1)), StandardCharsets.UTF_8));
+		} catch (IOException e) {
+		    System.err.println("Error reading arguments file " + args[0] +
+				       "before delegating to worker implementation");
+		    System.exit(1);
+		}
+	    }
+	    workerInterface.work(args);
 	}
+    }
+
+    private static final class ExitTrapped extends RuntimeException {
+	final int code;
+	ExitTrapped(int code) {
+	    super();
+	    this.code = code;
+	}
+    }
+
+    private static final Pattern exitPattern =
+	Pattern.compile("exitVM\\.(-?\\d+)");
+
+    private static String[] toArray(List<String> list) {
+	int n = list.size();
+	String[] res = new String[n];
+	for (int i = 0; i < n; i++) {
+	    res[i] = list.get(i);
+	}
+	return res;
     }
 }
